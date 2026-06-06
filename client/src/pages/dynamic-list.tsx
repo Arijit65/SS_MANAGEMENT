@@ -15,6 +15,8 @@ import {
   Check, X, CornerDownLeft, ArrowUpDown,
 } from 'lucide-react'
 import type { CustomField } from '../store/slices/customTablesSlice'
+import FieldRenderer from '../components/custom-tables/field-renderer'
+import type { RelatedRecordInfo } from '../store/slices/customTablesSlice'
 
 // ─── Cell formatters (read-only display) ──────────────────────────────────────
 
@@ -93,9 +95,25 @@ interface InlineCellEditorProps {
   field: CustomField
   value: unknown
   onChange: (val: unknown) => void
+  tableId?: number
+  relatedData?: Record<string, RelatedRecordInfo[]>
 }
 
-function InlineCellEditor({ field, value, onChange }: InlineCellEditorProps) {
+function InlineCellEditor({ field, value, onChange, tableId, relatedData }: InlineCellEditorProps) {
+  // For relation/sync fields, delegate to the full FieldRenderer so
+  // the live dropdown suggestions work the same as in form mode.
+  if (field.type === 'relation' || field.type === 'sync') {
+    return (
+      <FieldRenderer
+        field={field}
+        value={value}
+        onChange={onChange}
+        tableId={tableId}
+        relatedData={relatedData}
+      />
+    )
+  }
+
   const base = 'w-full px-2 py-1 text-sm border border-blue-400 rounded bg-white dark:bg-[#18181B] text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500'
 
   switch (field.type) {
@@ -203,14 +221,18 @@ interface InlineRowProps {
   fields: CustomField[]
   initialData?: Record<string, unknown>
   recordId?: number
+  tableId?: number
+  relatedData?: Record<string, RelatedRecordInfo[]>
   onSave: (data: Record<string, unknown>) => Promise<void>
   onCancel: () => void
   isSaving: boolean
 }
 
-function InlineRow({ fields, initialData = {}, recordId, onSave, onCancel, isSaving }: InlineRowProps) {
+function InlineRow({ fields, initialData = {}, recordId, tableId, relatedData, onSave, onCancel, isSaving }: InlineRowProps) {
   const [data, setData] = useState<Record<string, unknown>>(initialData)
-  const listFields = fields.filter(f => f.show_in_list !== false).slice(0, 6)
+  const listFields = [...fields]
+    .filter(f => f.show_in_list !== false)
+    .sort((a, b) => (a.field_order ?? 0) - (b.field_order ?? 0))
 
   const handleChange = (name: string, val: unknown) => {
     setData(prev => ({ ...prev, [name]: val }))
@@ -220,11 +242,13 @@ function InlineRow({ fields, initialData = {}, recordId, onSave, onCancel, isSav
     <tr className="bg-blue-50/60 dark:bg-blue-900/10 border-b-2 border-blue-400 dark:border-blue-600">
       <td className="px-4 py-2 text-gray-400 text-sm">{recordId ?? '—'}</td>
       {listFields.map(field => (
-        <td key={field.name} className="px-2 py-1.5">
+        <td key={field.name} className="px-2 py-1.5 align-top">
           <InlineCellEditor
             field={field}
             value={data[field.name]}
             onChange={val => handleChange(field.name, val)}
+            tableId={tableId}
+            relatedData={relatedData}
           />
         </td>
       ))}
@@ -299,7 +323,11 @@ export default function DynamicListPage() {
   }, [])
 
   const entryMode = currentTable?.entry_mode ?? 'inline'
-  const listFields = currentTable?.fields?.filter((f) => f.show_in_list !== false).slice(0, 6) || []
+  const listFields = currentTable?.fields
+    ? [...currentTable.fields]
+        .filter((f) => f.show_in_list !== false)
+        .sort((a, b) => (a.field_order ?? 0) - (b.field_order ?? 0))
+    : []
   const displayName = currentTable?.display_name || tableName
 
   // ── Add record handler (mode-aware) ───────────────────────────────────────
@@ -498,6 +526,7 @@ export default function DynamicListPage() {
                 {showNewRow && entryMode === 'inline' && (
                   <InlineRow
                     fields={listFields}
+                    tableId={currentTable?.id}
                     onSave={handleInlineSave}
                     onCancel={() => setShowNewRow(false)}
                     isSaving={isSubmitting}
@@ -514,6 +543,8 @@ export default function DynamicListPage() {
                         fields={listFields}
                         initialData={rec.data || {}}
                         recordId={rec.id}
+                        tableId={currentTable?.id}
+                        relatedData={rec._related}
                         onSave={(data) => handleInlineUpdate(rec.id, data)}
                         onCancel={() => setEditingRowId(null)}
                         isSaving={isSubmitting}

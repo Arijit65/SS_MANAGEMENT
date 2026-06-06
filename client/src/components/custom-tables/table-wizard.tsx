@@ -4,6 +4,9 @@ import {
   createCustomTable,
   fetchCustomTableById,
   updateCustomTable,
+  updateCustomField,
+  addCustomField,
+  fetchCustomTables,
   clearSelectedTable,
   fetchTablesForRelation,
   type CustomFieldFormData,
@@ -214,32 +217,82 @@ export default function TableWizard({ tableId, onClose }: TableWizardProps) {
   const handleSubmit = async () => {
     if (!validateStep1() || !validateStep2()) return
 
-    const tableData = {
+    const tableMetadata = {
       name: tableName,
       display_name: displayName,
       description: description || undefined,
       icon,
       entry_mode: entryMode,
-      fields: fields.map((f, i) => ({
-        name: f.name,
-        label: f.label,
-        type: f.type,
-        options: f.options,
-        is_required: f.is_required,
-        is_searchable: f.is_searchable,
-        show_in_list: f.show_in_list,
-        field_order: i,
-        placeholder: f.placeholder,
-        default_value: f.default_value,
-        validation: f.validation,
-      })),
     }
 
     try {
       if (isEditing && tableId) {
-        await dispatch(updateCustomTable({ id: tableId, payload: tableData })).unwrap()
+        // 1. Update table metadata
+        await dispatch(updateCustomTable({ id: tableId, payload: tableMetadata })).unwrap()
+
+        // 2. Update / create each field
+        for (let i = 0; i < fields.length; i++) {
+          const f = fields[i]
+          const fieldPayload: Partial<CustomFieldFormData> = {
+            label: f.label,
+            type: f.type,
+            options: f.options,
+            is_required: f.is_required,
+            is_searchable: f.is_searchable,
+            show_in_list: f.show_in_list,
+            field_order: i,
+            placeholder: f.placeholder,
+            default_value: f.default_value,
+            validation: f.validation,
+          }
+
+          if (f.tempId.startsWith('existing-')) {
+            // Extract the numeric ID from 'existing-<id>'
+            const fieldId = parseInt(f.tempId.replace('existing-', ''), 10)
+            await dispatch(updateCustomField({ tableId, fieldId, field: fieldPayload })).unwrap()
+          } else {
+            // Brand-new field
+            await dispatch(
+              addCustomField({
+                tableId,
+                field: {
+                  name: f.name,
+                  label: f.label,
+                  type: f.type,
+                  options: f.options,
+                  is_required: f.is_required ?? false,
+                  is_searchable: f.is_searchable ?? false,
+                  show_in_list: f.show_in_list ?? true,
+                  field_order: i,
+                  placeholder: f.placeholder,
+                  default_value: f.default_value,
+                  validation: f.validation,
+                },
+              })
+            ).unwrap()
+          }
+        }
+
+        // 3. Refresh the table list so the parent sees latest data
+        dispatch(fetchCustomTables())
         dispatch(showSuccessToast('Table Updated', `${displayName} has been updated.`))
       } else {
+        const tableData = {
+          ...tableMetadata,
+          fields: fields.map((f, i) => ({
+            name: f.name,
+            label: f.label,
+            type: f.type,
+            options: f.options,
+            is_required: f.is_required,
+            is_searchable: f.is_searchable,
+            show_in_list: f.show_in_list,
+            field_order: i,
+            placeholder: f.placeholder,
+            default_value: f.default_value,
+            validation: f.validation,
+          })),
+        }
         await dispatch(createCustomTable(tableData)).unwrap()
         dispatch(showSuccessToast('Table Created', `${displayName} has been created successfully.`))
       }
