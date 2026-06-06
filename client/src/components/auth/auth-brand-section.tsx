@@ -11,7 +11,7 @@ export function AuthBrandSection() {
         <div className="mb-8">
           <div className="flex items-center mb-6">
             <img
-              src="/src/assets/rlogo.png"
+              src="/rlogo.png"
               alt="Smritisudha Admin"
               className="w-12 h-12 rounded-lg mr-4"
             />

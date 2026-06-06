@@ -42,3 +42,6 @@ Thumbs.db
 # Local uploads/cache (if used)
 uploads/
 cache/
+
+
+src/config/*

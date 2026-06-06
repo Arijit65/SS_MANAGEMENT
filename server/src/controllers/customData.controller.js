@@ -167,20 +167,27 @@ const performSync = async (table, record, oldData, newData, operation, transacti
   return syncResults;
 };
 
+// Helper to convert a Sequelize instance OR plain object to a plain JS object
+const toPlain = (record) => {
+  if (record && typeof record.toJSON === 'function') return record.toJSON();
+  return record;
+};
+
 // Helper to enrich record data with related record info
 const enrichWithRelatedData = async (records, fields) => {
   const relationFields = fields.filter(f => RELATION_TYPES.includes(f.type) && f.relation);
   
   if (relationFields.length === 0) {
-    return records;
+    return records.map(toPlain);
   }
 
   // Collect all referenced IDs per target table
   const refsByTable = {};
   
   for (const record of records) {
+    const data = toPlain(record);
     for (const field of relationFields) {
-      const value = record.data?.[field.name];
+      const value = data.data?.[field.name];
       if (!value) continue;
       
       const tableId = field.relation.target_table_id;
@@ -196,13 +203,13 @@ const enrichWithRelatedData = async (records, fields) => {
   // Fetch all referenced records in batches
   const refRecords = {};
   for (const [tableId, ids] of Object.entries(refsByTable)) {
-    const records = await CustomTableData.findAll({
+    const fetched = await CustomTableData.findAll({
       where: {
         table_id: parseInt(tableId),
         id: { [Op.in]: Array.from(ids) },
       },
     });
-    refRecords[tableId] = records.reduce((acc, r) => {
+    refRecords[tableId] = fetched.reduce((acc, r) => {
       acc[r.id] = r;
       return acc;
     }, {});
@@ -210,11 +217,11 @@ const enrichWithRelatedData = async (records, fields) => {
 
   // Enrich records with related data
   return records.map(record => {
-    const enrichedData = { ...record.data };
+    const plain = toPlain(record);
     const _related = {};
 
     for (const field of relationFields) {
-      const value = record.data?.[field.name];
+      const value = plain.data?.[field.name];
       if (!value) continue;
 
       const tableId = field.relation.target_table_id;
@@ -234,7 +241,7 @@ const enrichWithRelatedData = async (records, fields) => {
     }
 
     return {
-      ...record.toJSON(),
+      ...plain,
       _related,
     };
   });
@@ -380,7 +387,7 @@ const getAll = asyncHandler(async (req, res) => {
 
   // Enrich with related data (only for allowed columns if restricted)
   const enrichedRows = await enrichWithRelatedData(
-    filteredRows.map(r => r.toJSON ? r.toJSON() : r), 
+    filteredRows,
     table.fields.filter(f => !allowedColumns || allowedColumns.includes(f.name))
   );
 
